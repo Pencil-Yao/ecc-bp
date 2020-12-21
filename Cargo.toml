@@ -1,0 +1,24 @@
+[package]
+name = "ecc-bp"
+version = "0.1.0"
+authors = ["yieazy <yuitta@163.com>"]
+description = "A tuition to learn elliptic curve from code."
+documentation = "https://mock.icu/ecc-bp"
+edition = "2018"
+keywords = ["ecc", "cryptography", "best-parctice"]
+license = "Apache-2.0"
+repository = "https://github.com/Pencil-Yao/ecc-bp"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.7.3"
+libsm = "0.3.0"
+hex = "0.3"
+num-bigint = "0.2"
+num-traits = "0.2.11"
+
+[dev-dependencies]
+
+[features]
+internal_benches = []
