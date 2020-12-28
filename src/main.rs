@@ -20,7 +20,6 @@ use crate::verification::Signature;
 use ::rand::{prelude::ThreadRng, thread_rng, Rng};
 
 mod curve;
-mod elem;
 mod error;
 mod exchange;
 mod param;
@@ -58,10 +57,6 @@ fn main() {
     let s = sig.s();
     let sig2 = Signature::new(&r, &s).unwrap();
 
-    sig2.sm2_verify(
-        &key_pair.public_from_private(&cctx).unwrap(),
-        test_word,
-        &cctx,
-    )
-    .unwrap()
+    sig2.sm2_verify(&key_pair.public_key(), test_word, &cctx)
+        .unwrap()
 }

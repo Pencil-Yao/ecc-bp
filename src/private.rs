@@ -12,18 +12,16 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use crate::elem::Scalar;
 use crate::error::KeyRejected;
 use crate::param::CurveCtx;
 use crate::public::BN_LENGTH;
 use crate::rand::SecureRandom;
 use num_bigint::BigUint;
-use std::marker::PhantomData;
 
 pub(crate) fn create_private_key(
     rng: &mut dyn SecureRandom,
     cctx: &CurveCtx,
-) -> Result<Scalar, KeyRejected> {
+) -> Result<BigUint, KeyRejected> {
     let mut seed = [0; BN_LENGTH];
 
     // XXX: The value 100 was chosen to match OpenSSL due to uncertainty of
@@ -33,10 +31,7 @@ pub(crate) fn create_private_key(
         let candidate = BigUint::from_bytes_be(&seed);
 
         if &candidate < &cctx.n {
-            return Ok(Scalar {
-                inner: candidate,
-                m: PhantomData,
-            });
+            return Ok(candidate);
         }
     }
 

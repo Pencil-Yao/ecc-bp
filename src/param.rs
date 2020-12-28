@@ -12,11 +12,9 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use crate::elem::{Elem, R};
 use crate::error::KeyRejected;
 use crate::public::{PublicKey, BN_LENGTH};
 use num_bigint::BigUint;
-use std::marker::PhantomData;
 
 /// ecc equation: y^2 == x^3 +ax + b (modp)
 /// r = 2 ^256
@@ -39,10 +37,8 @@ pub struct CurveCtx {
     pub n_inv_r_neg: BigUint,
     // r^2 modn
     pub rr_n: BigUint,
-    // a * r modp
-    pub a_mont: Elem<R>,
-    // b * r modp
-    pub b_mont: Elem<R>,
+    pub a: BigUint,
+    pub b: BigUint,
     // generator point at jacobi
     // x_aff = to_mont(x), y_aff = to_mont(y)
     // g_point = to_jacobi(x_aff, y_aff)
@@ -90,15 +86,6 @@ impl CurveCtx {
             Ok(ctx.hash("1234567812345678", &pk_point, msg))
         }
 
-        let a_mont: Elem<R> = Elem {
-            inner: a * r % p,
-            m: PhantomData,
-        };
-        let b_mont: Elem<R> = Elem {
-            inner: b * r % p,
-            m: PhantomData,
-        };
-
         let ctx = CurveCtx {
             r_sub_one: r - 1 as u32,
             p: p.clone(),
@@ -114,8 +101,8 @@ impl CurveCtx {
                     .unwrap(),
             ),
             rr_n: r * r % n,
-            a_mont,
-            b_mont,
+            a,
+            b,
             g_point: [g_x * r % p, g_y * r % p, r % p],
             hasher: sm2hash,
         };
