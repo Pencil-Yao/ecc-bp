@@ -15,6 +15,7 @@
 use crate::error::KeyRejected;
 use crate::public::{PublicKey, BN_LENGTH};
 use num_bigint::BigUint;
+use num_traits::One;
 
 /// ecc equation: y^2 == x^3 +ax + b (modp)
 /// r = 2 ^256
@@ -45,6 +46,8 @@ pub struct CurveCtx {
     pub g_point: [BigUint; 3],
     // hash function
     pub hasher: fn(pk: &PublicKey, msg: &[u8]) -> Result<[u8; BN_LENGTH], KeyRejected>,
+    // r-1 modp
+    pub r_inv: BigUint,
 }
 
 impl CurveCtx {
@@ -77,6 +80,10 @@ impl CurveCtx {
             &hex::decode("bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0")
                 .unwrap(),
         );
+        let r_inv = BigUint::from_bytes_be(
+            &hex::decode("fffffffb00000005fffffffc00000002fffffffd00000006fffffff900000004")
+                .unwrap(),
+        );
 
         fn sm2hash(pk: &PublicKey, msg: &[u8]) -> Result<[u8; BN_LENGTH], KeyRejected> {
             let ctx = libsm::sm2::signature::SigCtx::new();
@@ -103,8 +110,9 @@ impl CurveCtx {
             rr_n: r * r % n,
             a,
             b,
-            g_point: [g_x * r % p, g_y * r % p, r % p],
+            g_point: [g_x, g_y, BigUint::one()],
             hasher: sm2hash,
+            r_inv,
         };
 
         ctx

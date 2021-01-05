@@ -21,7 +21,8 @@ pub fn affine_from_jacobian(
     let y = point.point_y();
     let z = point.point_z();
 
-    let zz_inv = bn_to_inv(&z, cctx);
+    let z_inv = bn_to_inv(&z, cctx);
+    let zz_inv = bn_mul_mod(&z_inv, &z_inv, cctx);
 
     let x_aff = bn_mul_mod(&x, &zz_inv, cctx);
 

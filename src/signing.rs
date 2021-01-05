@@ -86,16 +86,18 @@ impl KeyPair {
             let s = bn_scalar_mul_mod(&left, &right, cctx);
 
             #[cfg(test)]
-                println!("{:x}, {:x}", r, s);
-            // assert_eq!(
-            //     &r.to_str_radix(16),
-            //     "80511be00b753e05b0b7abe51be3753b17151244aa5f66e6f87939d3e00a3b4d"
-            // );
-            // #[cfg(test)]
-            // assert_eq!(
-            //     &s.to_str_radix(16),
-            //     "39286762f8a6cd0ab02b66d99c9a76cc49bf92c3b0f64aff9d80eaf350bb37bc"
-            // );
+            {
+                let target_r = BigUint::from_bytes_be(
+                    &hex::decode("80511be00b753e05b0b7abe51be3753b17151244aa5f66e6f87939d3e00a3b4d")
+                        .unwrap(),
+                );
+                let target_s = BigUint::from_bytes_be(
+                    &hex::decode("39286762f8a6cd0ab02b66d99c9a76cc49bf92c3b0f64aff9d80eaf350bb37bc")
+                        .unwrap(),
+                );
+                assert_eq!(r, target_r);
+                assert_eq!(s, target_s)
+            }
 
             return Ok(Signature::from_scalars(r, s));
         }

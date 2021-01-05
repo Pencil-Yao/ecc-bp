@@ -9,7 +9,7 @@
 // MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
-// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// OF CONTRACT, NEGLIGENCE te OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 use crate::param::CurveCtx;
@@ -129,7 +129,7 @@ pub(crate) fn bn_point_add(a: &[BigUint; 3], b: &[BigUint; 3], cctx: &CurveCtx) 
 
 /// The algorithm: "dbl-2001-b"
 /// Cost: 3M + 5S + 8add + 1*3 + 1*4 + 2*8
-///      delta = Z12
+///       delta = Z12
 ///       gamma = Y12
 ///       beta = X1*gamma
 ///       alpha = 3*(X1-delta)*(X1+delta)
@@ -258,25 +258,7 @@ pub(crate) fn bn_to_inv(a: &BigUint, cctx: &CurveCtx) -> BigUint {
     bn_sqr_mul(&acc, 2, b_1, cctx)
 }
 
-#[cfg(test)]
-fn bn_to_affine(a: &[BigUint; 3], cctx: &CurveCtx) -> [BigUint; 2] {
-    let a_x = &a[0];
-    let a_y = &a[1];
-    let a_z = &a[2];
-    assert!(a_x.bits() <= CURVE_LENGTH && a_y.bits() <= CURVE_LENGTH && a_z.bits() <= CURVE_LENGTH);
-
-    let z_inv = bn_to_inv(&a_z, cctx);
-    let zz_inv = bn_mul_mod(&z_inv, &z_inv, cctx);
-    let zzz_inv = bn_mul_mod(&zz_inv, &z_inv, cctx);
-
-    let rem_x = bn_mul_mod(&a_x, &zz_inv, cctx);
-    let rem_y = bn_mul_mod(&a_y, &zzz_inv, cctx);
-
-    [rem_x, rem_y]
-}
-
 pub(crate) fn bn_to_jacobi(a: &[BigUint; 2]) -> [BigUint; 3] {
-    // 1 * r modsm2p256
     [a[0].clone(), a[1].clone(), BigUint::one()]
 }
 
@@ -426,6 +408,8 @@ pub(crate) fn bn_scalar_to_inv(a: &BigUint, cctx: &CurveCtx) -> BigUint {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exchange::affine_from_jacobian;
+    use crate::public::Point;
     use num_bigint::BigUint;
 
     #[test]
@@ -435,13 +419,7 @@ mod tests {
             &hex::decode("fffffc4d0000064efffffb8c00000324fffffdc600000543fffff8950000053b")
                 .unwrap(),
         );
-        println!("bn_mul_mod_test 1: {:x}", &bn_mul_mod(&a, &a, cctx));
-
-        println!(
-            "bn_mul_mod_test 2: a * 1: {:x}, a: {:x}",
-            bn_mul_mod(&a, &cctx.r_p, cctx),
-            a
-        );
+        println!("bn_mul_mod_test: {:x}", &bn_mul_mod(&a, &a, cctx));
     }
 
     #[test]
@@ -504,7 +482,7 @@ mod tests {
     #[test]
     fn bn_point_double_test() {
         let cctx = &CurveCtx::sm2p256_new();
-        let ori_point_g = [
+        let point_g = [
             BigUint::from_bytes_be(
                 &hex::decode("32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7")
                     .unwrap(),
@@ -514,60 +492,17 @@ mod tests {
                     .unwrap(),
             ),
         ];
-        let projective_mont_point_g = bn_to_jacobi(&ori_point_g);
-        let double_projective_mont_point_g = bn_point_double(&projective_mont_point_g, cctx);
-        println!(
-            "bn_point_double_test 1: x: {:x}, y: {:x}",
-            double_projective_mont_point_g[0], double_projective_mont_point_g[1]
-        );
-        let double_affine_mont_point_g = bn_to_affine(&double_projective_mont_point_g, cctx);
-        println!(
-            "bn_point_double_test 2: double g_x: {:x}, g_y: {:x}",
-            double_affine_mont_point_g[0], double_affine_mont_point_g[1]
-        );
+        let projective_point_g = bn_to_jacobi(&point_g);
+        let projective_point_g2 = bn_point_double(&projective_point_g, cctx);
+        let (x_out, y_out) =
+            affine_from_jacobian(&Point::new(projective_point_g2), cctx).unwrap();
+        println!("bn_point_double_test: x: {:x}, y: {:x}", x_out, y_out);
     }
 
     #[test]
     fn bn_point_add_test() {
         let cctx = &CurveCtx::sm2p256_new();
-        let g_2 = [
-            BigUint::from_bytes_be(
-                &hex::decode("0d7e9c18caa5736a5349d94b5788cd2483bdc9ba2d8fa9380af037bfbc3be46a")
-                    .unwrap(),
-            ),
-            BigUint::from_bytes_be(
-                &hex::decode("947e74656c21bdf5c7b145169b7157acccbd8d37c4a8e82b6a7e1a1d69db9ac1")
-                    .unwrap(),
-            ),
-        ];
-        let g_4 = [
-            BigUint::from_bytes_be(
-                &hex::decode("50dc8e3ac899dbe18a86bcb4a09f9020487ea27fe9016209393f7c5a98615060")
-                    .unwrap(),
-            ),
-            BigUint::from_bytes_be(
-                &hex::decode("6ffc31c525bce9e34d0bd55632cf70ed1de135ea7c7383bdfc099043fd619998")
-                    .unwrap(),
-            ),
-        ];
-        let pro_g_2 = bn_to_jacobi(&g_2);
-        let pro_g_4 = bn_to_jacobi(&g_4);
-        let pro_g_6 = bn_point_add(&pro_g_2, &pro_g_4, cctx);
-        println!(
-            "bn_point_add_test 1: x: {:x}, y: {:x}",
-            pro_g_6[0], pro_g_6[1]
-        );
-        let aff_g_6 = bn_to_affine(&pro_g_6, cctx);
-        println!(
-            "bn_point_add_test 2: 6g_x: {:x}, 6g_y: {:x}",
-            aff_g_6[0], aff_g_6[1]
-        )
-    }
-
-    #[test]
-    fn bn_point_mul_test() {
-        let cctx = &CurveCtx::sm2p256_new();
-        let ori_point_g = [
+        let point_g = [
             BigUint::from_bytes_be(
                 &hex::decode("32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7")
                     .unwrap(),
@@ -577,19 +512,37 @@ mod tests {
                     .unwrap(),
             ),
         ];
-        let projective_mont_point_g = bn_to_jacobi(&ori_point_g);
+        let projective_point_g = bn_to_jacobi(&point_g);
+        let projective_point_g2 = bn_point_double(&projective_point_g, cctx);
+        let projective_point_g3 = bn_point_add(&projective_point_g2, &projective_point_g, cctx);
+        let (x_out, y_out) =
+            affine_from_jacobian(&Point::new(projective_point_g3), cctx).unwrap();
+        println!("bn_point_add_test: x: {:x}, y: {:x}", x_out, y_out);
+    }
 
-        let scalar = bn_shl_mod(&BigUint::new(vec![31]), 8 * 1, cctx);
-        let pro_point = bn_point_mul(&projective_mont_point_g, &scalar, cctx);
-        println!(
-            "bn_point_mul_test 1: x: {:x}, y: {:x}",
-            pro_point[0], pro_point[1]
+    #[test]
+    fn bn_point_mul_test() {
+        let cctx = &CurveCtx::sm2p256_new();
+        let point_g = [
+            BigUint::from_bytes_be(
+                &hex::decode("32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7")
+                    .unwrap(),
+            ),
+            BigUint::from_bytes_be(
+                &hex::decode("bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0")
+                    .unwrap(),
+            ),
+        ];
+        let projective_point_g = bn_to_jacobi(&point_g);
+
+        let scalar = BigUint::from_bytes_be(
+            &hex::decode("dc30061d04874834e5a220abf7212ed6acf005cd78843090d89cdf6229c4bddf")
+                .unwrap(),
         );
-        let aff_point = bn_to_affine(&pro_point, cctx);
-        println!(
-            "bn_point_mul_test 2: affine_point: {:x}, affine_point: {:x}",
-            aff_point[0], aff_point[1]
-        )
+        let pro_point = bn_point_mul(&projective_point_g, &scalar, cctx);
+        let (x_out, y_out) =
+            affine_from_jacobian(&Point::new(pro_point), cctx).unwrap();
+        println!("bn_point_mul_test: x: {:x}, y: {:x}", x_out, y_out);
     }
 
     #[test]
