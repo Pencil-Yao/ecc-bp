@@ -12,9 +12,7 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use crate::curve::{bn_to_jacobi, bn_to_mont};
-use crate::elem::{Elem, R};
-use crate::param::CurveCtx;
+use crate::curve::bn_to_jacobi;
 use num_bigint::BigUint;
 
 pub struct Point([BigUint; 3]);
@@ -24,22 +22,16 @@ impl Point {
         Point(a)
     }
 
-    pub fn point_x(&self) -> Elem<R> {
-        let mut r = Elem::zero();
-        r.inner = self.0[0].clone();
-        r
+    pub fn point_x(&self) -> BigUint {
+        self.0[0].clone()
     }
 
-    pub fn point_y(&self) -> Elem<R> {
-        let mut r = Elem::zero();
-        r.inner = self.0[1].clone();
-        r
+    pub fn point_y(&self) -> BigUint {
+        self.0[1].clone()
     }
 
-    pub fn point_z(&self) -> Elem<R> {
-        let mut r = Elem::zero();
-        r.inner = self.0[2].clone();
-        r
+    pub fn point_z(&self) -> BigUint {
+        self.0[2].clone()
     }
 
     pub fn to_bns(&self) -> [BigUint; 3] {
@@ -53,7 +45,8 @@ pub struct PublicKey {
 }
 
 impl PublicKey {
-    pub fn new(x: &[u8; BN_LENGTH], y: &[u8; BN_LENGTH]) -> Self {
+    pub fn new(x: &[u8], y: &[u8]) -> Self {
+        assert!(x.len() == BN_LENGTH && y.len() == BN_LENGTH);
         let mut public = PublicKey {
             bytes: [0; PUBLIC_KEY_LEN],
         };
@@ -68,14 +61,11 @@ impl PublicKey {
         &self.bytes
     }
 
-    pub fn to_point(&self, cctx: &CurveCtx) -> Point {
+    pub fn to_point(&self) -> Point {
         let x = BigUint::from_bytes_be(&self.bytes[1..BN_LENGTH + 1]);
-        let x_aff = bn_to_mont(&x, cctx);
-
         let y = BigUint::from_bytes_be(&self.bytes[BN_LENGTH + 1..]);
-        let y_aff = bn_to_mont(&y, cctx);
 
-        Point(bn_to_jacobi(&[x_aff, y_aff], cctx))
+        Point(bn_to_jacobi(&[x, y]))
     }
 }
 

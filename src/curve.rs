@@ -9,27 +9,15 @@
 // MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
-// OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+// OF CONTRACT, NEGLIGENCE te OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 use crate::param::CurveCtx;
 use num_bigint::BigUint;
 use num_traits::identities::Zero;
+use num_traits::One;
 
 const CURVE_LENGTH: usize = 256;
-
-pub(crate) fn bn_mont_pro(a: &BigUint, b: &BigUint, cctx: &CurveCtx) -> BigUint {
-    assert!(a.bits() <= CURVE_LENGTH && b.bits() <= CURVE_LENGTH);
-    let t = a * b;
-    let m = (&t * &cctx.p_inv_r_neg) & &cctx.r_sub_one;
-    let m_mul_p = m * &cctx.p;
-    let mut r = t + &m_mul_p;
-    r >>= CURVE_LENGTH;
-    if r >= cctx.p {
-        r -= &cctx.p;
-    }
-    r
-}
 
 pub(crate) fn bn_add_mod(a: &BigUint, b: &BigUint, cctx: &CurveCtx) -> BigUint {
     assert!(a.bits() <= CURVE_LENGTH && b.bits() <= CURVE_LENGTH);
@@ -48,9 +36,9 @@ fn bn_sub_mod(a: &BigUint, b: &BigUint, cctx: &CurveCtx) -> BigUint {
     (a + &neg_b) % &cctx.p
 }
 
-fn bn_mul_mod(a: &BigUint, m: usize, cctx: &CurveCtx) -> BigUint {
+pub(crate) fn bn_mul_mod(a: &BigUint, b: &BigUint, cctx: &CurveCtx) -> BigUint {
     assert!(a.bits() <= CURVE_LENGTH);
-    bn_mod(&(m * a), cctx)
+    bn_mod(&(b * a), cctx)
 }
 
 // a << b
@@ -72,11 +60,6 @@ fn bn_mod(a: &BigUint, cctx: &CurveCtx) -> BigUint {
         rem -= &cctx.p;
     }
     rem
-}
-
-pub(crate) fn bn_to_mont(a: &BigUint, cctx: &CurveCtx) -> BigUint {
-    assert!(a.bits() <= CURVE_LENGTH);
-    bn_mont_pro(a, &cctx.rr_p, cctx)
 }
 
 /// The algorithm: "add-1998-cmo-2"
@@ -114,39 +97,39 @@ pub(crate) fn bn_point_add(a: &[BigUint; 3], b: &[BigUint; 3], cctx: &CurveCtx) 
         return rem_arr;
     }
 
-    let a_z_sqr = bn_mont_pro(&a_z, &a_z, cctx);
-    let b_z_sqr = bn_mont_pro(&b_z, &b_z, cctx);
-    let u1 = bn_mont_pro(&a_x, &b_z_sqr, cctx);
-    let u2 = bn_mont_pro(&b_x, &a_z_sqr, cctx);
-    let a_z_cub = bn_mont_pro(&a_z_sqr, &a_z, cctx);
-    let b_z_cub = bn_mont_pro(&b_z_sqr, &b_z, cctx);
-    let s1 = bn_mont_pro(&a_y, &b_z_cub, cctx);
-    let s2 = bn_mont_pro(&b_y, &a_z_cub, cctx);
+    let a_z_sqr = bn_mul_mod(&a_z, &a_z, cctx);
+    let b_z_sqr = bn_mul_mod(&b_z, &b_z, cctx);
+    let u1 = bn_mul_mod(&a_x, &b_z_sqr, cctx);
+    let u2 = bn_mul_mod(&b_x, &a_z_sqr, cctx);
+    let a_z_cub = bn_mul_mod(&a_z_sqr, &a_z, cctx);
+    let b_z_cub = bn_mul_mod(&b_z_sqr, &b_z, cctx);
+    let s1 = bn_mul_mod(&a_y, &b_z_cub, cctx);
+    let s2 = bn_mul_mod(&b_y, &a_z_cub, cctx);
     let h = bn_sub_mod(&u2, &u1, cctx);
     let r = bn_sub_mod(&s2, &s1, cctx);
-    let r_sqr = bn_mont_pro(&r, &r, cctx);
-    let h_sqr = bn_mont_pro(&h, &h, cctx);
-    let h_cub = bn_mont_pro(&h_sqr, &h, cctx);
+    let r_sqr = bn_mul_mod(&r, &r, cctx);
+    let h_sqr = bn_mul_mod(&h, &h, cctx);
+    let h_cub = bn_mul_mod(&h_sqr, &h, cctx);
 
-    let lam1 = bn_mont_pro(&u1, &h_sqr, cctx); // u1*h^2
+    let lam1 = bn_mul_mod(&u1, &h_sqr, cctx); // u1*h^2
     let rem_x = bn_sub_mod(
         &bn_sub_mod(&r_sqr, &h_cub, cctx),
         &bn_shl_mod(&lam1, 1, cctx),
         cctx,
     );
     let rem_y = bn_sub_mod(
-        &bn_mont_pro(&r, &bn_sub_mod(&lam1, &rem_x, cctx), cctx),
-        &bn_mont_pro(&s1, &h_cub, cctx),
+        &bn_mul_mod(&r, &bn_sub_mod(&lam1, &rem_x, cctx), cctx),
+        &bn_mul_mod(&s1, &h_cub, cctx),
         cctx,
     );
-    let rem_z = bn_mont_pro(&bn_mont_pro(&a_z, &b_z, cctx), &h, cctx);
+    let rem_z = bn_mul_mod(&bn_mul_mod(&a_z, &b_z, cctx), &h, cctx);
 
     [rem_x, rem_y, rem_z]
 }
 
 /// The algorithm: "dbl-2001-b"
 /// Cost: 3M + 5S + 8add + 1*3 + 1*4 + 2*8
-///      delta = Z12
+///       delta = Z12
 ///       gamma = Y12
 ///       beta = X1*gamma
 ///       alpha = 3*(X1-delta)*(X1+delta)
@@ -158,32 +141,32 @@ pub(crate) fn bn_point_double(a: &[BigUint; 3], cctx: &CurveCtx) -> [BigUint; 3]
     let a_y = &a[1];
     let a_z = &a[2];
     assert!(a_x.bits() <= CURVE_LENGTH && a_y.bits() <= CURVE_LENGTH && a_z.bits() <= CURVE_LENGTH);
-    let delta = bn_mont_pro(a_z, a_z, cctx);
-    let gamma = bn_mont_pro(a_y, a_y, cctx);
-    let beta = bn_mont_pro(a_x, &gamma, cctx);
+    let delta = bn_mul_mod(a_z, a_z, cctx);
+    let gamma = bn_mul_mod(a_y, a_y, cctx);
+    let beta = bn_mul_mod(a_x, &gamma, cctx);
     let alpha = bn_mul_mod(
-        &bn_mont_pro(
+        &bn_mul_mod(
             &bn_sub_mod(a_x, &delta, cctx),
             &bn_add_mod(a_x, &delta, cctx),
             cctx,
         ),
-        3,
+        &BigUint::from(3 as usize),
         cctx,
     );
     let rem_x = bn_sub_mod(
-        &bn_mont_pro(&alpha, &alpha, cctx),
+        &bn_mul_mod(&alpha, &alpha, cctx),
         &bn_shl_mod(&beta, 3, cctx),
         cctx,
     );
     let lam1 = bn_sub_mod(&bn_shl_mod(&beta, 2, cctx), &rem_x, cctx); // 4 * beta - x3
     let rem_y = bn_sub_mod(
-        &bn_mont_pro(&alpha, &lam1, cctx),
-        &bn_shl_mod(&bn_mont_pro(&gamma, &gamma, cctx), 3, cctx),
+        &bn_mul_mod(&alpha, &lam1, cctx),
+        &bn_shl_mod(&bn_mul_mod(&gamma, &gamma, cctx), 3, cctx),
         cctx,
     );
     let lam2 = bn_add_mod(a_y, a_z, cctx);
     let rem_z = bn_sub_mod(
-        &bn_sub_mod(&bn_mont_pro(&lam2, &lam2, cctx), &gamma, cctx),
+        &bn_sub_mod(&bn_mul_mod(&lam2, &lam2, cctx), &gamma, cctx),
         &delta,
         cctx,
     );
@@ -221,11 +204,11 @@ pub(crate) fn bn_point_mul(a: &[BigUint; 3], scalar: &BigUint, cctx: &CurveCtx) 
 #[inline]
 pub(crate) fn bn_sqr_mul(a: &BigUint, squarings: usize, b: &BigUint, cctx: &CurveCtx) -> BigUint {
     assert!(squarings >= 1 && a.bits() <= CURVE_LENGTH);
-    let mut rem = bn_mont_pro(a, a, cctx);
+    let mut rem = bn_mul_mod(a, a, cctx);
     for _ in 1..squarings {
-        rem = bn_mont_pro(&rem, &rem, cctx);
+        rem = bn_mul_mod(&rem, &rem, cctx);
     }
-    bn_mont_pro(&rem, b, cctx)
+    bn_mul_mod(&rem, b, cctx)
 }
 
 pub(crate) fn bn_to_inv(a: &BigUint, cctx: &CurveCtx) -> BigUint {
@@ -251,7 +234,7 @@ pub(crate) fn bn_to_inv(a: &BigUint, cctx: &CurveCtx) -> BigUint {
     let mut acc = bn_sqr_mul(&fffffff_11, 1, &b_1, cctx);
 
     // fffffffe
-    acc = bn_mont_pro(&acc, &acc, cctx);
+    acc = bn_mul_mod(&acc, &acc, cctx);
 
     // fffffffeffffffff
     acc = bn_sqr_mul(&acc, 32, &ffffffff, cctx);
@@ -275,43 +258,13 @@ pub(crate) fn bn_to_inv(a: &BigUint, cctx: &CurveCtx) -> BigUint {
     bn_sqr_mul(&acc, 2, b_1, cctx)
 }
 
-#[cfg(test)]
-fn bn_to_affine(a: &[BigUint; 3], cctx: &CurveCtx) -> [BigUint; 2] {
-    let a_x = &a[0];
-    let a_y = &a[1];
-    let a_z = &a[2];
-    assert!(a_x.bits() <= CURVE_LENGTH && a_y.bits() <= CURVE_LENGTH && a_z.bits() <= CURVE_LENGTH);
-
-    let z_inv = bn_to_inv(&a_z, cctx);
-    let zz_inv = bn_mont_pro(&z_inv, &z_inv, cctx);
-    let zzz_inv = bn_mont_pro(&zz_inv, &z_inv, cctx);
-
-    let rem_x = bn_mont_pro(&a_x, &zz_inv, cctx);
-    let rem_y = bn_mont_pro(&a_y, &zzz_inv, cctx);
-
-    [rem_x, rem_y]
+pub(crate) fn bn_to_jacobi(a: &[BigUint; 2]) -> [BigUint; 3] {
+    [a[0].clone(), a[1].clone(), BigUint::one()]
 }
 
-pub(crate) fn bn_to_jacobi(a: &[BigUint; 2], cctx: &CurveCtx) -> [BigUint; 3] {
-    // 1 * r modsm2p256
-    [a[0].clone(), a[1].clone(), cctx.r_p.clone()]
-}
-
-pub(crate) fn bn_scalar_mont_pro(a: &BigUint, b: &BigUint, cctx: &CurveCtx) -> BigUint {
-    assert!(a.bits() <= CURVE_LENGTH && b.bits() <= CURVE_LENGTH);
-    let t = a * b;
-    let m = (t.clone() * &cctx.n_inv_r_neg) & &cctx.r_sub_one;
-    let m_mul_ninv = m * &cctx.n;
-    let mut r = t + &m_mul_ninv;
-    r >>= CURVE_LENGTH;
-    if r >= cctx.n {
-        r -= &cctx.n;
-    }
-    r
-}
-
-pub(crate) fn bn_scalar_mod(a: &BigUint, cctx: &CurveCtx) -> BigUint {
-    a % &cctx.n
+pub(crate) fn bn_scalar_mul_mod(a: &BigUint, b: &BigUint, cctx: &CurveCtx) -> BigUint {
+    assert!(a.bits() <= CURVE_LENGTH);
+    a * b % &cctx.n
 }
 
 pub(crate) fn bn_scalar_add_mod(a: &BigUint, b: &BigUint, cctx: &CurveCtx) -> BigUint {
@@ -334,16 +287,11 @@ pub(crate) fn bn_scalar_sub_mod(a: &BigUint, b: &BigUint, cctx: &CurveCtx) -> Bi
 // `a` squared `squarings` times * `b`
 fn bn_scalar_sqr_mul(a: &BigUint, squarings: usize, b: &BigUint, cctx: &CurveCtx) -> BigUint {
     assert!(squarings >= 1 && a.bits() <= CURVE_LENGTH);
-    let mut rem = bn_scalar_mont_pro(a, a, cctx);
+    let mut rem = bn_scalar_mul_mod(a, a, cctx);
     for _ in 1..squarings {
-        rem = bn_scalar_mont_pro(&rem, &rem, cctx);
+        rem = bn_scalar_mul_mod(&rem, &rem, cctx);
     }
-    bn_scalar_mont_pro(&rem, b, cctx)
-}
-
-pub(crate) fn bn_scalar_to_mont(a: &BigUint, cctx: &CurveCtx) -> BigUint {
-    assert!(a.bits() <= CURVE_LENGTH);
-    bn_scalar_mont_pro(a, &cctx.rr_n, cctx)
+    bn_scalar_mul_mod(&rem, b, cctx)
 }
 
 pub(crate) fn bn_scalar_to_inv(a: &BigUint, cctx: &CurveCtx) -> BigUint {
@@ -377,17 +325,17 @@ pub(crate) fn bn_scalar_to_inv(a: &BigUint, cctx: &CurveCtx) -> BigUint {
         BigUint::zero(),
     ];
 
-    d[B_1] = bn_scalar_to_mont(&a, cctx);
-    d[B_10] = bn_scalar_mont_pro(&d[B_1], &d[B_1], cctx);
-    d[B_11] = bn_scalar_mont_pro(&d[B_10], &d[B_1], cctx);
-    d[B_101] = bn_scalar_mont_pro(&d[B_10], &d[B_11], cctx);
-    d[B_111] = bn_scalar_mont_pro(&d[B_101], &d[B_10], cctx);
-    let b_1010 = bn_scalar_mont_pro(&d[B_101], &d[B_101], cctx);
-    d[B_1111] = bn_scalar_mont_pro(&b_1010, &d[B_101], cctx);
+    d[B_1] = a.clone();
+    d[B_10] = bn_scalar_mul_mod(&d[B_1], &d[B_1], cctx);
+    d[B_11] = bn_scalar_mul_mod(&d[B_10], &d[B_1], cctx);
+    d[B_101] = bn_scalar_mul_mod(&d[B_10], &d[B_11], cctx);
+    d[B_111] = bn_scalar_mul_mod(&d[B_101], &d[B_10], cctx);
+    let b_1010 = bn_scalar_mul_mod(&d[B_101], &d[B_101], cctx);
+    d[B_1111] = bn_scalar_mul_mod(&b_1010, &d[B_101], cctx);
     d[B_10101] = bn_scalar_sqr_mul(&b_1010, 0 + 1, &d[B_1], cctx);
-    let b_101010 = bn_scalar_mont_pro(&d[B_10101], &d[B_10101], cctx);
-    d[B_101111] = bn_scalar_mont_pro(&b_101010, &d[B_101], cctx);
-    let b_111111 = bn_scalar_mont_pro(&b_101010, &d[B_10101], cctx);
+    let b_101010 = bn_scalar_mul_mod(&d[B_10101], &d[B_10101], cctx);
+    d[B_101111] = bn_scalar_mul_mod(&b_101010, &d[B_101], cctx);
+    let b_111111 = bn_scalar_mul_mod(&b_101010, &d[B_10101], cctx);
     let b_1111111 = bn_scalar_sqr_mul(&b_111111, 0 + 1, &d[B_1], cctx);
 
     let ff = bn_scalar_sqr_mul(&b_111111, 0 + 2, &d[B_11], cctx);
@@ -401,7 +349,7 @@ pub(crate) fn bn_scalar_to_inv(a: &BigUint, cctx: &CurveCtx) -> BigUint {
     acc = bn_scalar_sqr_mul(&acc, 0 + 7, &b_1111111, cctx);
 
     // fffffffe
-    acc = bn_scalar_mont_pro(&acc, &acc, cctx);
+    acc = bn_scalar_mul_mod(&acc, &acc, cctx);
 
     // fffffffeffffffff
     acc = bn_scalar_sqr_mul(&acc, 0 + 32, &ffffffff, cctx);
@@ -460,32 +408,18 @@ pub(crate) fn bn_scalar_to_inv(a: &BigUint, cctx: &CurveCtx) -> BigUint {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exchange::affine_from_jacobian;
+    use crate::public::Point;
     use num_bigint::BigUint;
 
     #[test]
-    fn bn_mont_pro_test() {
+    fn bn_mul_mod_test() {
         let cctx = &CurveCtx::sm2p256_new();
         let a = BigUint::from_bytes_be(
             &hex::decode("fffffc4d0000064efffffb8c00000324fffffdc600000543fffff8950000053b")
                 .unwrap(),
         );
-        println!("bn_mont_pro_test 1: {:x}", &bn_mont_pro(&a, &a, cctx));
-
-        println!(
-            "bn_mont_pro_test 2: a * 1: {:x}, a: {:x}",
-            bn_mont_pro(&a, &cctx.r_p, cctx),
-            a
-        );
-    }
-
-    #[test]
-    fn bn_to_mont_test() {
-        let cctx = &CurveCtx::sm2p256_new();
-        let a = BigUint::from_bytes_be(
-            &hex::decode("fffffc4d0000064efffffb8c00000324fffffdc600000543fffff8950000053b")
-                .unwrap(),
-        );
-        println!("bn_to_mont_test: {:x}", bn_to_mont(&a, cctx));
+        println!("bn_mul_mod_test: {:x}", &bn_mul_mod(&a, &a, cctx));
     }
 
     #[test]
@@ -528,10 +462,10 @@ mod tests {
             &hex::decode("fffffc4d0000064efffffb8c00000324fffffdc600000543fffff8950000053b")
                 .unwrap(),
         );
-        let res_mon = bn_to_inv(&bn_to_mont(&a, cctx), cctx);
+        let res_mon = bn_to_inv(&a, cctx);
         println!(
             "bn_to_inv_test: {:x}",
-            bn_mont_pro(&res_mon, &BigUint::new(vec![1]), cctx)
+            bn_mul_mod(&res_mon, &BigUint::new(vec![1]), cctx)
         );
     }
 
@@ -548,7 +482,7 @@ mod tests {
     #[test]
     fn bn_point_double_test() {
         let cctx = &CurveCtx::sm2p256_new();
-        let ori_point_g = [
+        let point_g = [
             BigUint::from_bytes_be(
                 &hex::decode("32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7")
                     .unwrap(),
@@ -558,64 +492,17 @@ mod tests {
                     .unwrap(),
             ),
         ];
-        let mont_ori_point_g = [
-            bn_to_mont(&ori_point_g[0], cctx),
-            bn_to_mont(&ori_point_g[1], cctx),
-        ];
-        let projective_mont_point_g = bn_to_jacobi(&mont_ori_point_g, cctx);
-        let double_projective_mont_point_g = bn_point_double(&projective_mont_point_g, cctx);
-        println!(
-            "bn_point_double_test 1: x: {:x}, y: {:x}",
-            double_projective_mont_point_g[0], double_projective_mont_point_g[1]
-        );
-        let double_affine_mont_point_g = bn_to_affine(&double_projective_mont_point_g, cctx);
-        println!(
-            "bn_point_double_test 2: double g_x: {:x}, g_y: {:x}",
-            double_affine_mont_point_g[0], double_affine_mont_point_g[1]
-        );
+        let projective_point_g = bn_to_jacobi(&point_g);
+        let projective_point_g2 = bn_point_double(&projective_point_g, cctx);
+        let (x_out, y_out) =
+            affine_from_jacobian(&Point::new(projective_point_g2), cctx).unwrap();
+        println!("bn_point_double_test: x: {:x}, y: {:x}", x_out, y_out);
     }
 
     #[test]
     fn bn_point_add_test() {
         let cctx = &CurveCtx::sm2p256_new();
-        let g_2 = [
-            BigUint::from_bytes_be(
-                &hex::decode("0d7e9c18caa5736a5349d94b5788cd2483bdc9ba2d8fa9380af037bfbc3be46a")
-                    .unwrap(),
-            ),
-            BigUint::from_bytes_be(
-                &hex::decode("947e74656c21bdf5c7b145169b7157acccbd8d37c4a8e82b6a7e1a1d69db9ac1")
-                    .unwrap(),
-            ),
-        ];
-        let g_4 = [
-            BigUint::from_bytes_be(
-                &hex::decode("50dc8e3ac899dbe18a86bcb4a09f9020487ea27fe9016209393f7c5a98615060")
-                    .unwrap(),
-            ),
-            BigUint::from_bytes_be(
-                &hex::decode("6ffc31c525bce9e34d0bd55632cf70ed1de135ea7c7383bdfc099043fd619998")
-                    .unwrap(),
-            ),
-        ];
-        let pro_g_2 = bn_to_jacobi(&g_2, cctx);
-        let pro_g_4 = bn_to_jacobi(&g_4, cctx);
-        let pro_g_6 = bn_point_add(&pro_g_2, &pro_g_4, cctx);
-        println!(
-            "bn_point_add_test 1: x: {:x}, y: {:x}",
-            pro_g_6[0], pro_g_6[1]
-        );
-        let aff_g_6 = bn_to_affine(&pro_g_6, cctx);
-        println!(
-            "bn_point_add_test 2: 6g_x: {:x}, 6g_y: {:x}",
-            aff_g_6[0], aff_g_6[1]
-        )
-    }
-
-    #[test]
-    fn bn_point_mul_test() {
-        let cctx = &CurveCtx::sm2p256_new();
-        let ori_point_g = [
+        let point_g = [
             BigUint::from_bytes_be(
                 &hex::decode("32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7")
                     .unwrap(),
@@ -625,23 +512,37 @@ mod tests {
                     .unwrap(),
             ),
         ];
-        let mont_ori_point_g = [
-            bn_to_mont(&ori_point_g[0], cctx),
-            bn_to_mont(&ori_point_g[1], cctx),
-        ];
-        let projective_mont_point_g = bn_to_jacobi(&mont_ori_point_g, cctx);
+        let projective_point_g = bn_to_jacobi(&point_g);
+        let projective_point_g2 = bn_point_double(&projective_point_g, cctx);
+        let projective_point_g3 = bn_point_add(&projective_point_g2, &projective_point_g, cctx);
+        let (x_out, y_out) =
+            affine_from_jacobian(&Point::new(projective_point_g3), cctx).unwrap();
+        println!("bn_point_add_test: x: {:x}, y: {:x}", x_out, y_out);
+    }
 
-        let scalar = bn_shl_mod(&BigUint::new(vec![31]), 8 * 1, cctx);
-        let pro_point = bn_point_mul(&projective_mont_point_g, &scalar, cctx);
-        println!(
-            "bn_point_mul_test 1: x: {:x}, y: {:x}",
-            pro_point[0], pro_point[1]
+    #[test]
+    fn bn_point_mul_test() {
+        let cctx = &CurveCtx::sm2p256_new();
+        let point_g = [
+            BigUint::from_bytes_be(
+                &hex::decode("32c4ae2c1f1981195f9904466a39c9948fe30bbff2660be1715a4589334c74c7")
+                    .unwrap(),
+            ),
+            BigUint::from_bytes_be(
+                &hex::decode("bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0")
+                    .unwrap(),
+            ),
+        ];
+        let projective_point_g = bn_to_jacobi(&point_g);
+
+        let scalar = BigUint::from_bytes_be(
+            &hex::decode("dc30061d04874834e5a220abf7212ed6acf005cd78843090d89cdf6229c4bddf")
+                .unwrap(),
         );
-        let aff_point = bn_to_affine(&pro_point, cctx);
-        println!(
-            "bn_point_mul_test 2: affine_point: {:x}, affine_point: {:x}",
-            aff_point[0], aff_point[1]
-        )
+        let pro_point = bn_point_mul(&projective_point_g, &scalar, cctx);
+        let (x_out, y_out) =
+            affine_from_jacobian(&Point::new(pro_point), cctx).unwrap();
+        println!("bn_point_mul_test: x: {:x}, y: {:x}", x_out, y_out);
     }
 
     #[test]
@@ -654,7 +555,7 @@ mod tests {
         );
         println!(
             "bn_scalar_mont_pro_test: {:x}",
-            bn_scalar_mont_pro(&a, &b, cctx)
+            bn_scalar_mul_mod(&a, &b, cctx)
         );
     }
 

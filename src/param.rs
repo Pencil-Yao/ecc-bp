@@ -12,11 +12,10 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use crate::elem::{Elem, R};
 use crate::error::KeyRejected;
 use crate::public::{PublicKey, BN_LENGTH};
 use num_bigint::BigUint;
-use std::marker::PhantomData;
+use num_traits::One;
 
 /// ecc equation: y^2 == x^3 +ax + b (modp)
 /// r = 2 ^256
@@ -39,16 +38,16 @@ pub struct CurveCtx {
     pub n_inv_r_neg: BigUint,
     // r^2 modn
     pub rr_n: BigUint,
-    // a * r modp
-    pub a_mont: Elem<R>,
-    // b * r modp
-    pub b_mont: Elem<R>,
+    pub a: BigUint,
+    pub b: BigUint,
     // generator point at jacobi
     // x_aff = to_mont(x), y_aff = to_mont(y)
     // g_point = to_jacobi(x_aff, y_aff)
     pub g_point: [BigUint; 3],
     // hash function
     pub hasher: fn(pk: &PublicKey, msg: &[u8]) -> Result<[u8; BN_LENGTH], KeyRejected>,
+    // r-1 modp
+    pub r_inv: BigUint,
 }
 
 impl CurveCtx {
@@ -81,6 +80,10 @@ impl CurveCtx {
             &hex::decode("bc3736a2f4f6779c59bdcee36b692153d0a9877cc62a474002df32e52139f0a0")
                 .unwrap(),
         );
+        let r_inv = BigUint::from_bytes_be(
+            &hex::decode("fffffffb00000005fffffffc00000002fffffffd00000006fffffff900000004")
+                .unwrap(),
+        );
 
         fn sm2hash(pk: &PublicKey, msg: &[u8]) -> Result<[u8; BN_LENGTH], KeyRejected> {
             let ctx = libsm::sm2::signature::SigCtx::new();
@@ -89,15 +92,6 @@ impl CurveCtx {
                 .map_err(|_| KeyRejected::hash_error())?;
             Ok(ctx.hash("1234567812345678", &pk_point, msg))
         }
-
-        let a_mont: Elem<R> = Elem {
-            inner: a * r % p,
-            m: PhantomData,
-        };
-        let b_mont: Elem<R> = Elem {
-            inner: b * r % p,
-            m: PhantomData,
-        };
 
         let ctx = CurveCtx {
             r_sub_one: r - 1 as u32,
@@ -114,10 +108,11 @@ impl CurveCtx {
                     .unwrap(),
             ),
             rr_n: r * r % n,
-            a_mont,
-            b_mont,
-            g_point: [g_x * r % p, g_y * r % p, r % p],
+            a,
+            b,
+            g_point: [g_x, g_y, BigUint::one()],
             hasher: sm2hash,
+            r_inv,
         };
 
         ctx

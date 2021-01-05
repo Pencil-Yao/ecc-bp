@@ -12,10 +12,8 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use crate::curve::bn_scalar_to_mont;
-use crate::elem::{
-    elem_reduced_to_scalar, elem_to_unencoded, scalar_add, scalar_g, scalar_inv_to_mont,
-    scalar_mul, scalar_sub, scalar_to_unencoded, Elem, Scalar, R,
+use crate::curve::{
+    bn_point_mul, bn_scalar_add_mod, bn_scalar_mul_mod, bn_scalar_sub_mod, bn_scalar_to_inv,
 };
 use crate::error::KeyRejected;
 use crate::exchange::{affine_from_jacobian, big_endian_affine_from_jacobian};
@@ -25,30 +23,22 @@ use crate::public::{Point, PublicKey, BN_LENGTH};
 use crate::rand::SecureRandom;
 use crate::verification::Signature;
 use num_bigint::BigUint;
-use num_traits::One;
-use std::marker::PhantomData;
+use num_traits::{One, Zero};
 
 pub struct KeyPair {
-    d: Scalar<R>, // *R*
+    d: BigUint,
+    pk: PublicKey,
 }
 
 impl KeyPair {
     pub fn new(private_key: &[u8; BN_LENGTH], cctx: &CurveCtx) -> Result<Self, KeyRejected> {
-        let key_bn = BigUint::from_bytes_be(private_key);
-        let d = Scalar {
-            inner: bn_scalar_to_mont(&key_bn, cctx),
-            m: PhantomData,
-        };
-        Ok(KeyPair { d })
+        let d = BigUint::from_bytes_be(private_key) % &cctx.n;
+        let pk = public_from_private(&d, cctx)?;
+        Ok(KeyPair { d, pk })
     }
 
-    pub fn public_from_private(&self, cctx: &CurveCtx) -> Result<PublicKey, KeyRejected> {
-        let du = scalar_to_unencoded(&self.d, cctx);
-        let pk_point = Point::new(scalar_g(&du, cctx));
-
-        let (x, y) = big_endian_affine_from_jacobian(&pk_point, cctx)?;
-
-        Ok(PublicKey::new(&x, &y))
+    pub fn public_key(&self) -> PublicKey {
+        self.pk
     }
 
     pub fn sm2_sign(
@@ -57,7 +47,7 @@ impl KeyPair {
         message: &[u8],
         cctx: &CurveCtx,
     ) -> Result<Signature, KeyRejected> {
-        let digest = (cctx.hasher)(&self.public_from_private(cctx)?, &message)?;
+        let digest = (cctx.hasher)(&self.public_key(), &message)?;
 
         self.sm2_sign_digest(rng, &digest, cctx)
     }
@@ -70,42 +60,60 @@ impl KeyPair {
     ) -> Result<Signature, KeyRejected> {
         for _ in 0..100 {
             let rk = create_private_key(rng, cctx)?;
+            #[cfg(test)]
+            let rk = BigUint::from_bytes_be(
+                &hex::decode("fffffc4d0000064efffffb8c00000324fffffdc600000543fffff8950000053b")
+                    .unwrap(),
+            );
 
-            let rq = Point::new(scalar_g(&rk, cctx));
+            let rq = Point::new(bn_point_mul(&cctx.g_point, &rk, cctx));
 
             let r = {
                 let (x, _) = affine_from_jacobian(&rq, cctx)?;
-                let x = elem_to_unencoded(&x, cctx);
-                elem_reduced_to_scalar(&x, cctx)
+                x % &cctx.n
             };
             if r.is_zero() {
                 continue;
             }
 
-            let dl = BigUint::from_bytes_be(&digest);
-            let edl = Elem {
-                inner: dl,
-                m: PhantomData,
-            };
-            let e = elem_reduced_to_scalar(&edl, cctx);
+            let e = BigUint::from_bytes_be(&digest);
 
-            let scalar_one: Scalar = Scalar {
-                inner: BigUint::one(),
-                m: PhantomData,
-            };
+            let r = bn_scalar_add_mod(&r, &e, cctx);
 
-            let r = scalar_add(&r, &e, cctx);
+            let left = bn_scalar_to_inv(&bn_scalar_add_mod(&self.d, &BigUint::one(), cctx), cctx);
+            let dr = bn_scalar_mul_mod(&self.d, &r, cctx);
+            let right = bn_scalar_sub_mod(&rk, &dr, cctx);
+            let s = bn_scalar_mul_mod(&left, &right, cctx);
 
-            let da_ue = scalar_to_unencoded(&self.d, cctx);
-            let left = scalar_inv_to_mont(&scalar_add(&da_ue, &scalar_one, cctx), cctx);
-            let dr = scalar_mul(&self.d, &r, cctx);
-            let right = scalar_sub(&rk, &dr, cctx);
-            let s = scalar_mul(&left, &right, cctx);
+            #[cfg(test)]
+            {
+                let target_r = BigUint::from_bytes_be(
+                    &hex::decode("80511be00b753e05b0b7abe51be3753b17151244aa5f66e6f87939d3e00a3b4d")
+                        .unwrap(),
+                );
+                let target_s = BigUint::from_bytes_be(
+                    &hex::decode("39286762f8a6cd0ab02b66d99c9a76cc49bf92c3b0f64aff9d80eaf350bb37bc")
+                        .unwrap(),
+                );
+                assert_eq!(r, target_r);
+                assert_eq!(s, target_s)
+            }
 
             return Ok(Signature::from_scalars(r, s));
         }
         Err(KeyRejected::sign_digest_error())
     }
+}
+
+pub fn public_from_private(
+    private_key: &BigUint,
+    cctx: &CurveCtx,
+) -> Result<PublicKey, KeyRejected> {
+    let pk_point = Point::new(bn_point_mul(&cctx.g_point, private_key, cctx));
+
+    let (x, y) = big_endian_affine_from_jacobian(&pk_point, cctx)?;
+
+    Ok(PublicKey::new(&x, &y))
 }
 
 #[cfg(test)]
@@ -144,11 +152,7 @@ mod tests {
         let s = sig.s();
         let sig2 = Signature::new(&r, &s).unwrap();
 
-        sig2.sm2_verify(
-            &key_pair.public_from_private(&cctx).unwrap(),
-            test_word,
-            &cctx,
-        )
-        .unwrap()
+        sig2.sm2_verify(&key_pair.public_key(), test_word, &cctx)
+            .unwrap()
     }
 }
